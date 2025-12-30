@@ -1,0 +1,30 @@
+services:
+  app:
+    build: ./backend
+    container_name: str-access-app
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend/reservations.json:/app/reservations.json
+      # Si tu app usa credentials.json en runtime, descomenta:
+      # - ./backend/credentials.json:/app/credentials.json
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    depends_on:
+      - app
+    env_file:
+      - ./.env
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    restart: unless-stopped
+
+
+  
+
+
+
+

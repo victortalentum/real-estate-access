@@ -1,0 +1,170 @@
+:root{
+  --bg: #0f1216;
+  --card: #151a22;
+  --border: rgba(255,255,255,.08);
+  --text: rgba(255,255,255,.92);
+  --muted: rgba(255,255,255,.65);
+  --shadow: 0 18px 60px rgba(0,0,0,.35);
+  --radius: 18px;
+
+  --btn: #2f7df6;
+  --btnHover: #2467d2;
+
+  --okBg: rgba(46, 204, 113, .12);
+  --warnBg: rgba(241, 196, 15, .12);
+  --neutralBg: rgba(52, 152, 219, .12);
+}
+
+*{ box-sizing: border-box; }
+html, body { height: 100%; }
+
+body{
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  background: radial-gradient(1200px 700px at 20% -20%, rgba(47,125,246,.25), transparent 55%),
+              radial-gradient(900px 550px at 80% 10%, rgba(46,204,113,.15), transparent 55%),
+              var(--bg);
+  color: var(--text);
+}
+
+/* ✅ contenedor centrado */
+.page{
+  min-height: 100vh;
+  padding: 28px 16px 60px;
+}
+
+.container{
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+/* header */
+.pageHeader{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.pageTitle{
+  font-size: 56px;
+  line-height: 1;
+  margin: 0 0 6px 0;
+  letter-spacing: -0.02em;
+}
+
+.muted{ color: var(--muted); }
+.small{ font-size: 12px; }
+
+/* cards */
+.card{
+  background: rgba(21,26,34,.92);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  margin-top: 16px;
+  overflow: hidden;
+}
+
+.cardHeader{
+  display:flex;
+  align-items:center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cardTitle{
+  margin: 0;
+  font-size: 20px;
+}
+
+.cardBody{
+  padding: 16px 18px;
+}
+
+.grid2{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 720px){
+  .pageTitle{ font-size: 42px; }
+  .pageHeader{ flex-direction: column; }
+  .grid2{ grid-template-columns: 1fr; }
+}
+
+/* map placeholder */
+.mapBox{
+  height: 260px;
+  border-radius: 14px;
+  border: 1px dashed rgba(255,255,255,.20);
+  background: rgba(255,255,255,.03);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color: rgba(255,255,255,.55);
+}
+
+/* buttons */
+.btn{
+  background: var(--btn);
+  border: 0;
+  color: white;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn:hover{ background: var(--btnHover); }
+.btn:disabled{
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.btnSecondary{
+  background: rgba(255,255,255,.08);
+  border: 1px solid var(--border);
+}
+.btnSecondary:hover{
+  background: rgba(255,255,255,.12);
+}
+
+/* steps */
+.steps{
+  display: grid;
+  gap: 12px;
+}
+/* Override del boilerplate de Vite (evita el layout roto) */
+body { display: block !important; }
+#root { width: 100%; }
+/* =========================
+   HARD RESET VITE DEFAULTS
+   (must be at the VERY END)
+   ========================= */
+
+html, body {
+  height: auto !important;
+}
+
+body {
+  margin: 0 !important;
+  display: block !important;
+  place-items: initial !important;
+  align-items: initial !important;
+  justify-content: initial !important;
+  min-height: 0 !important;
+}
+
+#root {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  text-align: left !important;
+  display: block !important;
+}

@@ -1,0 +1,64 @@
+{
+  "byCode": {
+    "123": {
+      "id": "res_test_1",
+      "code": "123",
+      "updatedAt": "2025-12-30T01:08:51.734Z",
+      "payload": {
+        "data": {
+          "id": "res_test_1",
+          "code": "123",
+          "reservationId": "res_test_1",
+          "address": "Test Address - NYC",
+          "checkInISO": "2025-12-25T12:00:00-05:00",
+          "checkOutISO": "2025-12-31T11:00:00-05:00",
+          "steps": [
+            {
+              "id": "building",
+              "title": "Building entrance",
+              "description": "Use the button to unlock the building door.",
+              "actionLabel": "Open building door"
+            },
+            {
+              "id": "apartment",
+              "title": "Apartment door",
+              "description": "Use the button to unlock the apartment door.",
+              "actionLabel": "Open apartment door"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "byId": {
+    "res_test_1": {
+      "id": "res_test_1",
+      "code": "123",
+      "updatedAt": "2025-12-30T01:08:51.734Z",
+      "payload": {
+        "data": {
+          "id": "res_test_1",
+          "code": "123",
+          "reservationId": "res_test_1",
+          "address": "Test Address - NYC",
+          "checkInISO": "2025-12-25T12:00:00-05:00",
+          "checkOutISO": "2025-12-31T11:00:00-05:00",
+          "steps": [
+            {
+              "id": "building",
+              "title": "Building entrance",
+              "description": "Use the button to unlock the building door.",
+              "actionLabel": "Open building door"
+            },
+            {
+              "id": "apartment",
+              "title": "Apartment door",
+              "description": "Use the button to unlock the apartment door.",
+              "actionLabel": "Open apartment door"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "defaults": {
+    "agentUrl": null,
+    "photos": [],
+    "mapAddress": ""
+  },
+  "byCode": {
+    "123": {
+      "displayName": "Union Square - Unit 1C",
+      "mapAddress": "131 E 15th St, New York, NY 10003",
+      "photos": []
+    }
+  },
+  "byPropertyId": {}
+}
