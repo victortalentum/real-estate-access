@@ -59,7 +59,7 @@ function getCodeFromUrl(): string {
   return url.searchParams.get("code") || url.searchParams.get("c") || "";
 }
 
-const API_BASE = "http://localhost:3000";
+const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:3000";
 
 async function fetchReservationByCode(code: string): Promise<Reservation> {
   const res = await fetch(`${API_BASE}/api/reservations/by-code/${encodeURIComponent(code)}`);
