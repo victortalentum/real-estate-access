@@ -1,65 +1,93 @@
-export type AccessState = "before" | "active" | "after";
+// reservation.ts
+export type AccessPhase = "before" | "active" | "after";
 
-export type Reservation = {
+/**
+ * Each step is an instruction block (photo + text + button).
+ * Backend should now return `photoUrl` for building/apartment (and optional room).
+ */
+export type ReservationStep = {
   id: string;
-  addressLine: string;
-  cityLine: string;
-  checkInISO: string;   // ISO string
-  checkOutISO: string;  // ISO string
-  steps: Array<{
-    id: "building" | "apartment" | "room";
-    title: string;
-    description: string;
-    imageUrl?: string;
-    buttonLabel: string;
-  }>;
-  map: {
-    lat: number;
-    lng: number;
-    zoom?: number;
-  };
+  title: string;
+  description: string;
+  actionLabel: string;
+  photoUrl?: string | null;
 };
 
-export function getAccessState(now: Date, checkIn: Date, checkOut: Date): AccessState {
-  if (now < checkIn) return "before";
-  if (now > checkOut) return "after";
+/**
+ * WiFi block shown at the end (SSID + password).
+ */
+export type WifiInfo = {
+  ssid: string;
+  password: string;
+  notes?: string;
+};
+
+export type Reservation = {
+  reservationId: string;
+  address: string;
+  checkInISO: string;
+  checkOutISO: string;
+  steps: ReservationStep[];
+  wifi?: WifiInfo | null;
+};
+
+export function getAccessState(now: Date, checkIn: Date, checkOut: Date): AccessPhase {
+  const t = now.getTime();
+  if (t < checkIn.getTime()) return "before";
+  if (t > checkOut.getTime()) return "after";
   return "active";
 }
 
-// Mock para diseñar UI. Luego vendrá del backend/Hospitable.
+/**
+ * Countdown helper (use this in the UI with a `now` that updates every second).
+ */
+export function msUntilCheckOut(now: Date, checkOut: Date): number {
+  return Math.max(0, checkOut.getTime() - now.getTime());
+}
+
+/**
+ * Optional helper: turn milliseconds into "1d 15h 08m 03s".
+ */
+export function formatDuration(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  return `${days}d ${hours}h ${pad2(minutes)}m ${pad2(seconds)}s`;
+}
+
+/**
+ * DEV ONLY mock. Mirrors the new backend shape:
+ * - steps have photoUrl
+ * - wifi is present
+ */
 export const mockReservation: Reservation = {
-  id: "5625149326",
-  addressLine: "316 W 51st St Apt 1R",
-  cityLine: "New York, NY 10019",
-  // OJO: pon tu zona horaria real más adelante. Esto es solo UI.
+  reservationId: "res_test_1",
+  address: "131 E 15th St, New York, NY 10003",
   checkInISO: "2025-12-25T12:00:00-05:00",
   checkOutISO: "2025-12-31T11:00:00-05:00",
   steps: [
     {
       id: "building",
       title: "Building entrance",
-      description: "Locate the entrance. Use the button to unlock the building door.",
-      imageUrl: "",
-      buttonLabel: "Unlock building",
+      description: "Press the button and the building door will open.",
+      actionLabel: "Open building door",
+      photoUrl: "/static/photos/portal.jpg",
     },
     {
       id: "apartment",
       title: "Apartment door",
-      description: "Go to the apartment door. Use the button to unlock.",
-      imageUrl: "",
-      buttonLabel: "Unlock apartment",
-    },
-    {
-      id: "room",
-      title: "Room door (if applicable)",
-      description: "If this is a private room, use the button to unlock your room door.",
-      imageUrl: "",
-      buttonLabel: "Unlock room",
+      description: "Press the button and the apartment door will open.",
+      actionLabel: "Open apartment door",
+      photoUrl: "/static/photos/apartment.jpg",
     },
   ],
-  map: {
-    lat: 40.7625,
-    lng: -73.9847,
-    zoom: 14,
+  wifi: {
+    ssid: "MY_WIFI",
+    password: "MY_PASSWORD",
+    notes: "Network is 2.4G/5G; use the same password.",
   },
 };
