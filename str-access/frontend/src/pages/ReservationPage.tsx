@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useParams } from "react-router-dom";
 import { Countdown } from "../components/Countdown";
 import { StatusPill } from "../components/StatusPill";
 import { StepCard } from "../components/StepCard";
@@ -21,19 +22,20 @@ type ReservationStep = {
 };
 
 type Reservation = {
-  reservationId: string;
+  reservationId: string; // internal id
   address: string;
   checkInISO: string;
   checkOutISO: string;
-
   steps: ReservationStep[];
 
-  // enrichment backend
   propertyId?: string;
   displayName?: string;
   mapAddress?: string;
-  photos?: string[]; // fallback images
+  photos?: string[];
   wifi?: WifiInfo | null;
+
+  // optional: if backend returns it
+  code?: string;
 };
 
 function isValidDate(d: Date) {
@@ -44,7 +46,7 @@ function formatDate(d: Date) {
   try {
     return d.toLocaleString(undefined, {
       year: "numeric",
-      month: "2-digit",
+      month: "short",
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
@@ -54,7 +56,7 @@ function formatDate(d: Date) {
   }
 }
 
-function getCodeFromUrl(): string {
+function getCodeFromQuery(): string {
   const url = new URL(window.location.href);
   return url.searchParams.get("code") || url.searchParams.get("c") || "";
 }
@@ -66,6 +68,8 @@ async function fetchReservationByCode(code: string): Promise<Reservation> {
   const json = await res.json();
 
   if (!res.ok || !json?.ok) throw new Error(json?.error || "Reservation not found");
+
+  // backend returns: { ok, code, id, updatedAt, reservation }
   return json.reservation as Reservation;
 }
 
@@ -139,13 +143,7 @@ function SectionHeader({
   );
 }
 
-function InstructionPhoto({
-  src,
-  alt,
-}: {
-  src?: string | null;
-  alt: string;
-}) {
+function InstructionPhoto({ src, alt }: { src?: string | null; alt: string }) {
   if (!src) return null;
 
   return (
@@ -164,12 +162,6 @@ function InstructionPhoto({
   );
 }
 
-/**
- * PRO: resuelve foto por prioridad:
- * 1) step.photoUrl
- * 2) photos[] matching keywords
- * 3) photos[0]
- */
 function resolveStepPhoto(stepId: string, stepPhotoUrl?: string | null, photos?: string[]) {
   if (stepPhotoUrl) return stepPhotoUrl;
 
@@ -222,8 +214,12 @@ function WifiBlock({ wifi }: { wifi?: WifiInfo | null }) {
 export function ReservationPage() {
   const [now, setNow] = useState<Date>(() => new Date());
 
+  // ✅ code from /r/:code (preferred), fallback to ?code=
+  const params = useParams();
+  const routeCode = typeof params.code === "string" ? params.code : "";
+  const [code] = useState<string>(() => routeCode || getCodeFromQuery());
+
   // API state
-  const [code] = useState<string>(() => getCodeFromUrl());
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [reservation, setReservation] = useState<Reservation | null>(null);
@@ -231,7 +227,6 @@ export function ReservationPage() {
   const [loadingByStep, setLoadingByStep] = useState<Record<string, boolean>>({});
   const [resultByStep, setResultByStep] = useState<Record<string, StepResult>>({});
 
-  // LIVE countdown
   useEffect(() => {
     const t = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(t);
@@ -239,7 +234,7 @@ export function ReservationPage() {
 
   useEffect(() => {
     if (!code) {
-      setError("Missing code in URL. Use ?code=123");
+      setError("Missing access code. Please open the link provided in your message.");
       setReservation(null);
       return;
     }
@@ -291,7 +286,7 @@ export function ReservationPage() {
     return "Reservation ended";
   }, [phase]);
 
-  const headerLine = loading ? "Loading..." : error ? `Error: ${error}` : `Code: ${code}`;
+  const headerLine = loading ? "Loading…" : error ? `Error: ${error}` : `Access code: ${code}`;
   const mapAddress = reservation?.mapAddress || reservation?.address || "";
 
   const orderedSteps = useMemo(() => {
@@ -332,13 +327,12 @@ export function ReservationPage() {
     }
   }
 
-  // friendly copy per step
   const stepSubtitle = (stepId: string) => {
     const s = stepId.toLowerCase();
-    if (s === "building") return "First, open the building entrance door. Press the button and it will unlock.";
-    if (s === "apartment") return "Next, go to the apartment door. Press the button to unlock.";
+    if (s === "building") return "First, open the building entrance door. Tap the button to unlock.";
+    if (s === "apartment") return "Next, go to the apartment door. Tap the button to unlock.";
     if (s === "room") return "If applicable, unlock your private room door.";
-    return "Follow the instructions below and press the button to unlock.";
+    return "Follow the instructions below and tap the button to unlock.";
   };
 
   return (
@@ -347,8 +341,9 @@ export function ReservationPage() {
         {/* HEADER */}
         <div className="pageHeader">
           <div>
-            <h1 className="pageTitle">Reservation</h1>
+            <h1 className="pageTitle">Access</h1>
             <div className="muted small">{headerLine}</div>
+
             {reservation?.displayName ? (
               <div className="muted small" style={{ marginTop: 6 }}>
                 {reservation.displayName}
@@ -359,7 +354,14 @@ export function ReservationPage() {
           <div style={{ textAlign: "right" }}>
             <StatusPill phase={phase} />
             <div className="muted small" style={{ marginTop: 6 }}>
-              Dev helper
+              {reservation?.reservationId ? (
+                <>
+                  Internal ID
+                  <div style={{ fontWeight: 800, marginTop: 2 }}>{reservation.reservationId}</div>
+                </>
+              ) : (
+                " "
+              )}
             </div>
             <button className="btn btnSecondary" onClick={() => setNow(new Date())}>
               Refresh
@@ -373,13 +375,7 @@ export function ReservationPage() {
               <div className="cardTitle">Stay details</div>
             </div>
             <div className="cardBody">
-              <div className="muted">
-                {loading
-                  ? "Loading reservation..."
-                  : error
-                  ? error
-                  : "Open with: http://localhost:5173/reservation?code=123"}
-              </div>
+              <div className="muted">{loading ? "Loading reservation…" : error ? error : "No reservation found."}</div>
             </div>
           </div>
         ) : (
@@ -390,7 +386,7 @@ export function ReservationPage() {
                 <div>
                   <div className="cardTitle">Stay details</div>
                   <div className="muted small" style={{ marginTop: 6 }}>
-                    Reservation ID: {reservation.reservationId}
+                    Access code: <span style={{ fontWeight: 800 }}>{code}</span>
                   </div>
                 </div>
 
@@ -411,7 +407,7 @@ export function ReservationPage() {
 
                   <div className="muted small" style={{ marginTop: 6 }}>
                     {phase === "before"
-                      ? "The unlock buttons will appear automatically at check-in time."
+                      ? "The unlock buttons will activate automatically at check-in time."
                       : phase === "active"
                       ? "Buttons are active during your reservation window."
                       : "Reservation window has ended."}
@@ -446,7 +442,7 @@ export function ReservationPage() {
               </div>
             </div>
 
-            {/* 2) STEP BY STEP (PRO) */}
+            {/* 2) STEP BY STEP */}
             <div className="card">
               <div className="cardHeader">
                 <div className="cardTitle">Step-by-step access</div>
@@ -493,7 +489,6 @@ export function ReservationPage() {
 
                           <InstructionPhoto src={photo} alt={`${step.id}-photo`} />
 
-                          {/* Texto del backend + botón */}
                           <StepCard
                             title="Instructions"
                             description={step.description}
@@ -528,7 +523,7 @@ export function ReservationPage() {
               </div>
             </div>
 
-            {/* 4) WIFI FINAL */}
+            {/* 4) WIFI */}
             <WifiBlock wifi={reservation.wifi} />
           </>
         )}

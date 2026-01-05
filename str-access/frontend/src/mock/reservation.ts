@@ -3,7 +3,7 @@ export type AccessPhase = "before" | "active" | "after";
 
 /**
  * Each step is an instruction block (photo + text + button).
- * Backend should now return `photoUrl` for building/apartment (and optional room).
+ * Backend should return `photoUrl` for each step when available.
  */
 export type ReservationStep = {
   id: string;
@@ -14,7 +14,7 @@ export type ReservationStep = {
 };
 
 /**
- * WiFi block shown at the end (SSID + password).
+ * Wi-Fi block shown at the end (SSID + password).
  */
 export type WifiInfo = {
   ssid: string;
@@ -29,6 +29,11 @@ export type Reservation = {
   checkOutISO: string;
   steps: ReservationStep[];
   wifi?: WifiInfo | null;
+
+  // optional enrichment
+  displayName?: string;
+  mapAddress?: string;
+  photos?: string[];
 };
 
 export function getAccessState(now: Date, checkIn: Date, checkOut: Date): AccessPhase {
@@ -60,15 +65,38 @@ export function formatDuration(ms: number): string {
 }
 
 /**
- * DEV ONLY mock. Mirrors the new backend shape:
- * - steps have photoUrl
- * - wifi is present
+ * DEV ONLY mock.
+ * Uses dynamic dates so the reservation is "active" when you open the page.
  */
+function toIsoWithOffset(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hours = pad(d.getHours());
+  const minutes = pad(d.getMinutes());
+  const seconds = pad(d.getSeconds());
+
+  const offsetMin = -d.getTimezoneOffset();
+  const sign = offsetMin >= 0 ? "+" : "-";
+  const abs = Math.abs(offsetMin);
+  const offH = pad(Math.floor(abs / 60));
+  const offM = pad(abs % 60);
+
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${sign}${offH}:${offM}`;
+}
+
+const now = new Date();
+const checkIn = new Date(now.getTime() - 60 * 60 * 1000); // 1h ago
+const checkOut = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000); // in 2 days
+
 export const mockReservation: Reservation = {
   reservationId: "res_test_1",
+  displayName: "Demo property",
   address: "131 E 15th St, New York, NY 10003",
-  checkInISO: "2025-12-25T12:00:00-05:00",
-  checkOutISO: "2025-12-31T11:00:00-05:00",
+  mapAddress: "131 E 15th St, New York, NY 10003",
+  checkInISO: toIsoWithOffset(checkIn),
+  checkOutISO: toIsoWithOffset(checkOut),
   steps: [
     {
       id: "building",
