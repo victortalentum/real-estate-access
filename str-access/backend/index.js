@@ -4,17 +4,18 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
+// Node 18+ ya trae fetch global. Si tu Node fuera viejo, habría que añadir node-fetch.
 const app = express();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
 // ============================================================
-// ✅ FIX WINDOWS: __dirname correcto (evita /C:/... raro)
+// ✅ __dirname correcto (Windows friendly)
 // ============================================================
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ============================================================
-// Files (usa rutas estables)
+// Files (rutas estables)
 // ============================================================
 const DATA_FILE =
   process.env.RESERVATIONS_FILE || path.resolve(__dirname, "reservations.json");
@@ -23,18 +24,37 @@ const PROPERTIES_FILE =
   process.env.PROPERTIES_FILE || path.resolve(__dirname, "properties.json");
 
 // ============================================================
-// CORS (para Vite en 5173)
+// CORS (dev + prod). PRO: soporta múltiples origins
+// - En local: http://localhost:5173
+// - En prod: pon FRONTEND_ORIGIN=https://tuapp.vercel.app
+//   o varios separados por coma
 // ============================================================
+const allowedOrigins = new Set(
+  (process.env.FRONTEND_ORIGIN || "http://localhost:5173")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+);
+
 app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "http://localhost:5173");
+  const origin = req.headers.origin;
+
+  // Si viene origin y está permitido → lo dejamos
+  if (origin && allowedOrigins.has(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+
+  // Para dev tools / fetch
+  res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
+
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
 
 // ============================================================
-// Raw body + JSON parser
+// Raw body + JSON parser (para firmas webhooks)
 // ============================================================
 app.use(
   express.json({
@@ -46,6 +66,13 @@ app.use(
 
 // ============================================================
 // Storage (reservations.json)
+// Estructura:
+// {
+//   "byCode": {
+//      "5039...": { id, code, updatedAt, payload }
+//   },
+//   "byId": { ... }
+// }
 // ============================================================
 function ensureDataFile() {
   const dir = path.dirname(DATA_FILE);
@@ -81,29 +108,48 @@ function writeDB(db) {
   fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
 }
 
+/**
+ * ✅ PRO: guarda SIEMPRE con clave byCode = code REAL (5039...)
+ * y byId = id.
+ * Así /r/5039... funciona siempre.
+ */
 function upsertReservation({ id, code, payload }) {
   const db = readDB();
 
   const record = {
-    id,
-    code,
+    id: id ? String(id) : null,
+    code: code ? String(code) : null,
     updatedAt: new Date().toISOString(),
     payload,
   };
 
-  if (code) db.byCode[String(code)] = record;
-  if (id) db.byId[String(id)] = record;
+  if (record.code) db.byCode[String(record.code)] = record;
+  if (record.id) db.byId[String(record.id)] = record;
 
   writeDB(db);
   return record;
 }
 
+/**
+ * ✅ PRO: encontrar una reserva aunque la clave no coincida
+ * (fallback por si algún dato viejo quedó guardado raro).
+ */
+function findReservationRecordByCode(db, code) {
+  const key = String(code || "");
+  if (!key) return null;
+
+  if (db.byCode?.[key]) return db.byCode[key];
+
+  const all = Object.values(db.byCode || {});
+  return all.find((r) => String(r?.code || "") === key) || null;
+}
+
 // ============================================================
-// Properties (properties.json) ✅ SOLO 1 implementación
+// Properties (properties.json)
 // Estructura esperada:
 // {
-//   "defaults": { "agentUrl": null, "photos": [], "mapAddress": "" },
-//   "byCode": { "123": { "mapAddress": "...", "photos": [...] } },
+//   "defaults": { "agentUrl": null, "photos": [], "mapAddress": "", "wifi": null },
+//   "byCode": { "5039...": { ... } },
 //   "byPropertyId": { "prop_jersey_001": { ... } }
 // }
 // ============================================================
@@ -113,7 +159,7 @@ function ensurePropertiesFile() {
 
   if (!fs.existsSync(PROPERTIES_FILE)) {
     const initial = {
-      defaults: { agentUrl: null, photos: [], mapAddress: "" },
+      defaults: { agentUrl: null, photos: [], mapAddress: "", wifi: null },
       byCode: {},
       byPropertyId: {},
     };
@@ -126,13 +172,13 @@ function readProperties() {
     ensurePropertiesFile();
     const raw = fs.readFileSync(PROPERTIES_FILE, "utf-8").trim();
     const obj = raw ? JSON.parse(raw) : {};
-    if (!obj.defaults) obj.defaults = { agentUrl: null, photos: [], mapAddress: "" };
+    if (!obj.defaults) obj.defaults = { agentUrl: null, photos: [], mapAddress: "", wifi: null };
     if (!obj.byCode) obj.byCode = {};
     if (!obj.byPropertyId) obj.byPropertyId = {};
     return obj;
   } catch (e) {
     console.error("[properties] readProperties error:", e);
-    return { defaults: { agentUrl: null, photos: [], mapAddress: "" }, byCode: {}, byPropertyId: {} };
+    return { defaults: { agentUrl: null, photos: [], mapAddress: "", wifi: null }, byCode: {}, byPropertyId: {} };
   }
 }
 
@@ -142,15 +188,12 @@ function resolvePropertyConfig({ code, propertyId }) {
   const byPid = propertyId ? props.byPropertyId?.[String(propertyId)] : null;
 
   return {
-    // defaults
     agentUrl: props.defaults?.agentUrl || null,
     photos: props.defaults?.photos || [],
     mapAddress: props.defaults?.mapAddress || "",
+    wifi: props.defaults?.wifi || null,
 
-    // overwrite por propertyId
     ...(byPid || {}),
-
-    // overwrite por code (máxima prioridad)
     ...(byCode || {}),
   };
 }
@@ -203,10 +246,15 @@ function getAccessPhase(now, checkInISO, checkOutISO) {
   return "active";
 }
 
+/**
+ * ✅ PRO: normaliza payload de Hospitable (y también tus seeds)
+ */
 function normalizeReservationFromPayload(payload, fallbackId, fallbackCode) {
   const data = payload?.data || payload?.body?.data || payload;
 
   const id = data?.reservationId || data?.id || fallbackId || null;
+
+  // Hospitable: puede ser code o platform_id según el evento
   const code = data?.code || data?.platform_id || fallbackCode || null;
 
   return {
@@ -219,6 +267,7 @@ function normalizeReservationFromPayload(payload, fallbackId, fallbackCode) {
     propertyId: String(data?.propertyId || ""),
     photos: Array.isArray(data?.photos) ? data.photos : [],
     mapAddress: String(data?.mapAddress || data?.address || ""),
+    wifi: data?.wifi || null,
   };
 }
 
@@ -253,7 +302,7 @@ app.get("/debug/last-unlock", (_req, res) => {
 });
 
 // ============================================================
-// Webhook endpoint
+// Webhook endpoint (Hospitable)
 // ============================================================
 app.post("/webhooks/hospitable", (req, res) => {
   lastWebhook = { at: new Date().toISOString(), body: req.body };
@@ -263,7 +312,11 @@ app.post("/webhooks/hospitable", (req, res) => {
   }
 
   const data = req.body?.data || req.body?.body?.data || req.body;
-  const id = data?.id || req.body?.id || null;
+
+  // id
+  const id = data?.id || data?.reservationId || req.body?.id || null;
+
+  // code
   const code = data?.code || data?.platform_id || null;
 
   const record = upsertReservation({
@@ -280,15 +333,13 @@ app.post("/webhooks/hospitable", (req, res) => {
 });
 
 // ============================================================
-// API: obtener reserva por code
-// ✅ FIX: address visible = mapAddress (si existe)
-// ✅ FIX: photos desde properties.json si reservation no trae
+// API: obtener reserva por code (el número 5039... de Hospitable)
 // ============================================================
 app.get("/api/reservations/by-code/:code", (req, res) => {
   const code = String(req.params.code || "");
   const db = readDB();
-  const rec = db.byCode?.[code];
 
+  const rec = findReservationRecordByCode(db, code);
   if (!rec) return res.status(404).json({ ok: false, error: "Not found", code });
 
   let reservation = normalizeReservationFromPayload(rec.payload, rec.id, rec.code);
@@ -298,22 +349,25 @@ app.get("/api/reservations/by-code/:code", (req, res) => {
   // si properties.json trae propertyId y la reserva no, úsalo
   if (!reservation.propertyId && cfg.propertyId) reservation.propertyId = String(cfg.propertyId);
 
-  // photos
+  // photos: si la reserva no trae, usa properties.json
   if (!reservation.photos || reservation.photos.length === 0) {
     reservation.photos = Array.isArray(cfg.photos) ? cfg.photos : [];
+  }
+
+  // wifi: si la reserva no trae, usa properties.json
+  if (!reservation.wifi && cfg.wifi) {
+    reservation.wifi = cfg.wifi;
   }
 
   // map address
   if (cfg.mapAddress) reservation.mapAddress = String(cfg.mapAddress);
 
-  // 🔥 lo que ve el usuario en "Address" (UI) → usa mapAddress si existe
-  if (reservation.mapAddress) {
-    reservation.address = reservation.mapAddress;
-  }
+  // lo que ve el usuario en "Address"
+  if (reservation.mapAddress) reservation.address = reservation.mapAddress;
 
   return res.json({
     ok: true,
-    code,
+    code: reservation.code || code,
     id: rec.id,
     updatedAt: rec.updatedAt,
     reservation,
@@ -333,13 +387,14 @@ app.post("/api/unlock", async (req, res) => {
   }
 
   const db = readDB();
-  const rec = db.byCode?.[code];
+  const rec = findReservationRecordByCode(db, code);
   if (!rec) return res.status(404).json({ ok: false, error: "Reservation not found", code });
 
   const reservation = normalizeReservationFromPayload(rec.payload, rec.id, rec.code);
 
   const now = new Date();
   const phase = getAccessPhase(now, reservation.checkInISO, reservation.checkOutISO);
+
   if (phase !== "active") {
     lastUnlock = { at: now.toISOString(), code, stepId, action, result: "blocked-not-active", phase };
     return res.status(403).json({ ok: false, error: "Access not active", phase, code, stepId });
@@ -364,6 +419,7 @@ app.post("/api/unlock", async (req, res) => {
       }).finally(() => clearTimeout(timeout));
 
       agentResponse = await r.json().catch(() => ({}));
+
       if (!r.ok || agentResponse?.ok === false) result = "agent-error";
       else result = agentResponse?.result || "agent-ok";
     }
@@ -392,7 +448,7 @@ app.post("/api/unlock", async (req, res) => {
 
 // ============================================================
 // DEV ONLY: seed test reservation
-// ✅ añadido GET para que puedas abrirlo en navegador
+// ✅ guarda la reserva usando byCode = code real (ej 5039...)
 // ============================================================
 function seedReservation(req, res) {
   try {
@@ -400,12 +456,13 @@ function seedReservation(req, res) {
       req.body?.payload ||
       {
         data: {
-          id: "res_test_1",
-          code: "123",
-          reservationId: "res_test_1",
+          id: "res_hospitable_5039895833",
+          code: "5039895833",
+          reservationId: "res_hospitable_5039895833",
+          propertyId: "prop_jersey_001",
           address: "Test Address - NYC",
-          checkInISO: "2025-12-25T12:00:00-05:00",
-          checkOutISO: "2025-12-31T11:00:00-05:00",
+          checkInISO: "2026-01-03T12:00:00-05:00",
+          checkOutISO: "2026-01-10T11:00:00-05:00",
           steps: [
             {
               id: "building",
@@ -420,12 +477,17 @@ function seedReservation(req, res) {
               actionLabel: "Open apartment door",
             },
           ],
+          wifi: {
+            ssid: "MY_WIFI",
+            password: "MY_PASSWORD",
+            notes: "Network is 2.4G/5G; use the same password.",
+          },
         },
       };
 
     const data = payload?.data || payload;
     const id = String(data?.id || data?.reservationId || "res_test_1");
-    const code = String(data?.code || "123");
+    const code = String(data?.code || data?.platform_id || "5039895833");
 
     const record = upsertReservation({ id, code, payload });
     res.json({ ok: true, saved: record, dataFile: DATA_FILE });
@@ -442,4 +504,5 @@ app.listen(PORT, () => {
   console.log(`STR Access API listening on port ${PORT}`);
   console.log(`Data file: ${DATA_FILE}`);
   console.log(`Properties file: ${PROPERTIES_FILE}`);
+  console.log(`Allowed origins: ${Array.from(allowedOrigins).join(", ")}`);
 });
