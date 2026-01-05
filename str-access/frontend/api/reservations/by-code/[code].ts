@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import fs from "fs";
-import path from "path";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 export default function handler(req: VercelRequest, res: VercelResponse) {
   const code = String(req.query.code ?? "");
