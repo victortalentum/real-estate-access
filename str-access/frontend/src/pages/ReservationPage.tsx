@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Countdown } from "../components/Countdown";
 import { StatusPill } from "../components/StatusPill";
@@ -61,11 +61,34 @@ function getCodeFromQuery(): string {
   return url.searchParams.get("code") || url.searchParams.get("c") || "";
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:3000";
+/**
+ * API base:
+ * - Default: "/api" (Vercel Functions)
+ * - Override with VITE_API_BASE if needed (e.g., "https://your-backend.com/api")
+ */
+const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "/api";
+
+async function fetchJsonOrThrow(res: Response) {
+  // If an HTML page comes back, this avoids "Unexpected token <" and shows a useful error
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    const text = await res.text().catch(() => "");
+    const snippet = text?.slice(0, 140)?.replace(/\s+/g, " ") || "";
+    throw new Error(
+      `API returned non-JSON (${res.status}). Check your Vercel function routes/rewrites. ${snippet ? `Response: ${snippet}` : ""}`.trim()
+    );
+  }
+  return res.json();
+}
 
 async function fetchReservationByCode(code: string): Promise<Reservation> {
-  const res = await fetch(`${API_BASE}/api/reservations/by-code/${encodeURIComponent(code)}`);
-  const json = await res.json();
+  // IMPORTANT: do NOT add an extra "/api" here; API_BASE already includes it by default
+  const res = await fetch(`${API_BASE}/reservations/by-code/${encodeURIComponent(code)}`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+
+  const json = await fetchJsonOrThrow(res);
 
   if (!res.ok || !json?.ok) throw new Error(json?.error || "Reservation not found");
 
@@ -214,9 +237,9 @@ function WifiBlock({ wifi }: { wifi?: WifiInfo | null }) {
 export function ReservationPage() {
   const [now, setNow] = useState<Date>(() => new Date());
 
-  // ✅ code from /r/:code (preferred), fallback to ?code=
+  // code from /r/:code (preferred), fallback to ?code=
   const params = useParams();
-  const routeCode = typeof params.code === "string" ? params.code : "";
+  const routeCode = typeof (params as any).code === "string" ? ((params as any).code as string) : "";
   const [code] = useState<string>(() => routeCode || getCodeFromQuery());
 
   // API state
@@ -310,20 +333,24 @@ export function ReservationPage() {
     setResultByStep((prev) => ({ ...prev, [stepId]: "idle" }));
 
     try {
-      const res = await fetch(`${API_BASE}/api/unlock`, {
+      // IMPORTANT: do NOT add an extra "/api" here; API_BASE already includes it by default
+      const res = await fetch(`${API_BASE}/unlock`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ code, stepId, action: stepId }),
       });
-      const json = await res.json();
+
+      const json = await fetchJsonOrThrow(res);
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Unlock failed");
+
       setResultByStep((prev) => ({ ...prev, [stepId]: "success" }));
     } catch (e) {
       setResultByStep((prev) => ({ ...prev, [stepId]: "error" }));
+      // keep console warning but avoid crashing UI
       console.warn(e);
     } finally {
       setLoadingByStep((prev) => ({ ...prev, [stepId]: false }));
-      setTimeout(() => setResultByStep((prev) => ({ ...prev, [stepId]: "idle" })), 3500);
+      window.setTimeout(() => setResultByStep((prev) => ({ ...prev, [stepId]: "idle" })), 3500);
     }
   }
 
