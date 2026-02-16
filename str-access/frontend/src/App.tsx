@@ -18,6 +18,10 @@ export default function App() {
 
       {/* fallback */}
       <Route path="*" element={<div style={{ padding: 24 }}>Not found</div>} />
+      <Route
+  path="/"
+  element={<div style={{ padding: 24 }}>DEPLOY TEST v1 - si ves esto, está actualizado</div>}
+/>
     </Routes>
   );
 }
