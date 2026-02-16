@@ -1,11 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-type Step = {
-  id: string;
-  title: string;
-  description?: string;
-  actionLabel?: string;
-};
+type Step = { id: string; title: string; description?: string; actionLabel?: string };
 
 type Reservation = {
   reservationId: string;
@@ -21,13 +16,36 @@ function formatDate(iso?: string) {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, { weekday: "short", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+async function safeJson(res: Response) {
+  const ct = res.headers.get("content-type") || "";
+  const text = await res.text();
+
+  // Si no es JSON, te enseñamos un snippet para debug
+  if (!ct.includes("application/json")) {
+    const snippet = text.slice(0, 220).replace(/\s+/g, " ").trim();
+    throw new Error(`API returned non-JSON (HTTP ${res.status}). ${snippet}`);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    const snippet = text.slice(0, 220).replace(/\s+/g, " ").trim();
+    throw new Error(`Invalid JSON (HTTP ${res.status}). ${snippet}`);
+  }
 }
 
 export default function App() {
   const reservationId = useMemo(() => {
     const p = window.location.pathname.replace(/^\/+/, "").trim(); // "RES-123"
-    return p || null;
+    if (!p) return null;
+
+    // Evita confusiones si alguien abre /api/... en el navegador:
+    if (p.startsWith("api/")) return null;
+
+    return p;
   }, []);
 
   const [loading, setLoading] = useState<boolean>(!!reservationId);
@@ -42,270 +60,216 @@ export default function App() {
       setError(null);
 
       try {
-        const url = `/api/reservations/by-id/${encodeURIComponent(reservationId)}`;
-        const res = await fetch(url, { headers: { "Accept": "application/json" } });
+        const url = `${window.location.origin}/api/reservations/by-id/${encodeURIComponent(reservationId)}`;
 
-        const ct = res.headers.get("content-type") || "";
-        if (!ct.includes("application/json")) {
-          const txt = await res.text();
-          throw new Error(
-            `API returned non-JSON (HTTP ${res.status}). This usually means /api is being caught by the SPA fallback.\n\nFirst bytes:\n${txt.slice(0, 200)}`
-          );
-        }
+        const res = await fetch(url, {
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        });
 
-        const data = await res.json();
+        const data = await safeJson(res);
+
         if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
 
         setReservation(data.reservation);
       } catch (e: any) {
         setError(e?.message || String(e));
-        setReservation(null);
       } finally {
         setLoading(false);
       }
     })();
   }, [reservationId]);
 
-  // ---------- UI ----------
-  return (
-    <div style={styles.page}>
-      <div style={styles.bgGlow} />
-
+  // Pantalla “home” si abren apartments-nyc.com sin /RES-xxx
+  if (!reservationId) {
+    return (
       <div style={styles.shell}>
-        <header style={styles.header}>
+        <div style={styles.header}>
+          <div style={styles.h1}>Access</div>
+        </div>
+
+        <div style={styles.card}>
+          <div style={styles.cardTitle}>Open the link you received (it ends with your reservation id).</div>
+          <div style={styles.muted}>Example: apartments-nyc.com/RES-123</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={styles.shell}>
+      <div style={styles.header}>
+        <div style={styles.h1}>Access</div>
+        <div style={styles.pill}>apartments-nyc.com</div>
+      </div>
+
+      <div style={{ ...styles.card, gap: 14 }}>
+        <div style={styles.topRow}>
           <div>
-            <div style={styles.kicker}>apartments-nyc.com</div>
-            <h1 style={styles.h1}>Access</h1>
-          </div>
-          {reservationId && <span style={styles.badge}>Reservation {reservationId}</span>}
-        </header>
-
-        {!reservationId && (
-          <div style={styles.card}>
-            <h2 style={styles.h2}>Open your access link</h2>
-            <p style={styles.p}>
-              Use the link you received — it ends with your reservation id.
-            </p>
-            <div style={styles.monoBox}>
-              Example: <b>apartments-nyc.com/RES-123</b>
+            <div style={{ ...styles.h2, marginBottom: 6 }}>{reservation?.property || "Your stay"}</div>
+            <div style={styles.subtitle}>
+              <div>Reservation {reservationId}</div>
+              {reservation?.name ? <div>Guest: {reservation.name}</div> : null}
+              {reservation?.address ? <div>{reservation.address}</div> : null}
             </div>
           </div>
-        )}
+          <span style={styles.statusPill}>{loading ? "Loading" : error ? "Issue" : "Active"}</span>
+        </div>
 
-        {reservationId && loading && (
-          <div style={styles.card}>
-            <h2 style={styles.h2}>Loading…</h2>
-            <p style={styles.p}>Fetching your stay details.</p>
-          </div>
-        )}
-
-        {reservationId && !loading && error && (
-          <div style={{ ...styles.card, borderColor: "rgba(255, 90, 90, 0.35)" }}>
-            <h2 style={{ ...styles.h2, color: "#ffb4b4" }}>Something went wrong</h2>
-            <pre style={styles.pre}>{error}</pre>
-
-            <div style={styles.row}>
-              <a style={styles.btn} href={`/api/health`} target="_blank" rel="noreferrer">Check API health</a>
-              <button style={styles.btnSecondary} onClick={() => window.location.reload()}>Refresh</button>
+        {loading ? (
+          <div style={styles.notice}>Loading…</div>
+        ) : error ? (
+          <div style={{ ...styles.notice, borderColor: "rgba(255,120,120,0.35)" }}>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Error</div>
+            <div style={{ whiteSpace: "pre-wrap" }}>{error}</div>
+            <div style={{ marginTop: 10, opacity: 0.8, fontSize: 13 }}>
+              Tip: prueba también abrir <b>/api/health</b> y <b>/api/reservations/by-id/{reservationId}</b> para ver si responde JSON.
             </div>
           </div>
-        )}
-
-        {reservationId && !loading && !error && reservation && (
+        ) : !reservation ? (
+          <div style={styles.notice}>Reservation not found</div>
+        ) : (
           <>
-            <div style={styles.card}>
-              <div style={styles.topRow}>
-                <div>
-                  <h2 style={styles.h2} style={{ marginBottom: 6 }}>
-                    {reservation.property || "Your stay"}
-                  </h2>
-                  <div style={styles.subtle}>
-                    {reservation.name ? `Guest: ${reservation.name}` : null}
-                    {reservation.name && reservation.address ? " • " : null}
-                    {reservation.address || ""}
-                  </div>
-                </div>
-                <span style={styles.statusPill}>Active</span>
+            <div style={styles.grid2}>
+              <div style={styles.kv}>
+                <div style={styles.k}>Check-in</div>
+                <div style={styles.v}>{formatDate(reservation.checkInISO)}</div>
               </div>
-
-              <div style={styles.grid2}>
-                <div style={styles.kv}>
-                  <div style={styles.k}>Check-in</div>
-                  <div style={styles.v}>{formatDate(reservation.checkInISO)}</div>
-                </div>
-                <div style={styles.kv}>
-                  <div style={styles.k}>Check-out</div>
-                  <div style={styles.v}>{formatDate(reservation.checkOutISO)}</div>
-                </div>
-              </div>
-
-              <div style={styles.row}>
-                <button style={styles.btnPrimary} onClick={() => alert("Next: connect to Hospitable / door unlock")}>
-                  Open door (soon)
-                </button>
-                <button style={styles.btnSecondary} onClick={() => window.location.reload()}>
-                  Refresh
-                </button>
+              <div style={styles.kv}>
+                <div style={styles.k}>Check-out</div>
+                <div style={styles.v}>{formatDate(reservation.checkOutISO)}</div>
               </div>
             </div>
 
-            <div style={styles.card}>
-              <h3 style={styles.h3}>Steps</h3>
-              <div style={{ display: "grid", gap: 10 }}>
-                {(reservation.steps?.length ? reservation.steps : [
-                  { id: "1", title: "Arrive at the building", description: "Go to the main entrance and get ready to buzz in." },
-                  { id: "2", title: "Get access", description: "Use the access link to open the door (we’ll hook this to Hospitable next)." },
-                  { id: "3", title: "Find the unit", description: "Follow the building signage and head to your apartment." }
-                ]).map((s, idx) => (
-                  <div key={s.id} style={styles.step}>
-                    <div style={styles.stepIndex}>{idx + 1}</div>
-                    <div>
+            <div style={{ marginTop: 6 }}>
+              <div style={styles.sectionTitle}>Steps</div>
+
+              <div style={styles.steps}>
+                {(reservation.steps && reservation.steps.length ? reservation.steps : demoSteps).map((s) => (
+                  <div key={s.id} style={styles.stepCard}>
+                    <div style={styles.stepTop}>
                       <div style={styles.stepTitle}>{s.title}</div>
-                      {s.description && <div style={styles.stepDesc}>{s.description}</div>}
-                      {s.actionLabel && <button style={{ ...styles.btnSecondary, marginTop: 10 }}>{s.actionLabel}</button>}
+                      {s.actionLabel ? <button style={styles.btn}>{s.actionLabel}</button> : null}
                     </div>
+                    {s.description ? <div style={styles.stepDesc}>{s.description}</div> : null}
                   </div>
                 ))}
               </div>
             </div>
-
-            <footer style={styles.footer}>
-              <div style={styles.footerText}>If you need help, reply to the message where you received this link.</div>
-            </footer>
           </>
         )}
+      </div>
+
+      <div style={styles.footer}>
+        <div style={styles.muted}>
+          This page is unique per reservation. We’ll connect it to Hospitable next.
+        </div>
       </div>
     </div>
   );
 }
 
+const demoSteps: Step[] = [
+  { id: "s1", title: "Building entry", description: "Use the intercom link (or call button) to open the main door.", actionLabel: "Open door" },
+  { id: "s2", title: "Apartment entry", description: "Use the keypad code (shown here later) or smart lock link.", actionLabel: "Get code" },
+  { id: "s3", title: "Wi-Fi", description: "Network name and password will appear here.", actionLabel: "Copy" },
+];
+
 const styles: Record<string, React.CSSProperties> = {
-  page: {
+  shell: {
     minHeight: "100vh",
-    background: "#0b0c10",
-    color: "#eaeef6",
-    position: "relative",
-    overflow: "hidden",
-    fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial"
+    padding: 18,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    background: "radial-gradient(1200px 800px at 20% 10%, rgba(255,255,255,0.08), transparent 60%), radial-gradient(900px 700px at 80% 0%, rgba(255,255,255,0.06), transparent 60%), #0b0c10",
+    color: "rgba(255,255,255,0.92)",
   },
-  bgGlow: {
-    position: "absolute",
-    inset: "-20%",
-    background:
-      "radial-gradient(60% 40% at 50% 20%, rgba(120, 150, 255, 0.22) 0%, rgba(0,0,0,0) 60%), radial-gradient(40% 30% at 20% 60%, rgba(255, 120, 200, 0.12) 0%, rgba(0,0,0,0) 65%)",
-    filter: "blur(10px)",
-    pointerEvents: "none"
+  header: {
+    width: "100%",
+    maxWidth: 860,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 12,
+    marginBottom: 14,
   },
-  shell: { width: "min(920px, 92vw)", margin: "0 auto", padding: "40px 0 60px", position: "relative" },
-  header: { display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 16, marginBottom: 18 },
-  kicker: { fontSize: 12, opacity: 0.7, letterSpacing: 0.6 },
-  h1: { fontSize: 52, lineHeight: 1.05, margin: "6px 0 0", fontWeight: 800 },
-  badge: {
-    fontSize: 12,
-    padding: "8px 10px",
+  h1: { fontSize: 44, fontWeight: 800, letterSpacing: -0.8 },
+  pill: {
+    padding: "8px 12px",
     borderRadius: 999,
     border: "1px solid rgba(255,255,255,0.15)",
     background: "rgba(255,255,255,0.06)",
-    whiteSpace: "nowrap"
+    fontSize: 13,
+    opacity: 0.9,
   },
   card: {
+    width: "100%",
+    maxWidth: 860,
     borderRadius: 18,
-    border: "1px solid rgba(255,255,255,0.12)",
+    border: "1px solid rgba(255,255,255,0.14)",
     background: "rgba(255,255,255,0.06)",
-    backdropFilter: "blur(10px)",
+    boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
     padding: 18,
-    boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
-    marginTop: 14
+    display: "flex",
+    flexDirection: "column",
   },
-  h2: { fontSize: 18, margin: 0, fontWeight: 750 },
-  h3: { fontSize: 16, margin: 0, fontWeight: 750 },
-  p: { margin: "10px 0 0", opacity: 0.85 },
-  monoBox: {
-    marginTop: 14,
-    padding: 12,
-    borderRadius: 12,
-    border: "1px dashed rgba(255,255,255,0.18)",
-    background: "rgba(0,0,0,0.25)",
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
-    fontSize: 13
-  },
-  pre: {
-    marginTop: 12,
-    whiteSpace: "pre-wrap",
-    padding: 12,
-    borderRadius: 12,
-    background: "rgba(0,0,0,0.35)",
-    border: "1px solid rgba(255,255,255,0.12)",
-    fontSize: 12,
-    lineHeight: 1.4
-  },
-  row: { display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" },
-  btn: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.15)",
-    background: "rgba(255,255,255,0.06)",
-    color: "#eaeef6",
-    textDecoration: "none",
-    fontWeight: 650
-  },
-  btnPrimary: {
-    padding: "12px 14px",
-    borderRadius: 14,
-    border: "1px solid rgba(255,255,255,0.18)",
-    background: "rgba(120,150,255,0.25)",
-    color: "#ffffff",
-    fontWeight: 800,
-    cursor: "pointer"
-  },
-  btnSecondary: {
-    padding: "12px 14px",
-    borderRadius: 14,
-    border: "1px solid rgba(255,255,255,0.15)",
-    background: "rgba(255,255,255,0.06)",
-    color: "#eaeef6",
-    fontWeight: 750,
-    cursor: "pointer"
-  },
-  topRow: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
-  subtle: { opacity: 0.8, marginTop: 4 },
+  cardTitle: { fontSize: 18, fontWeight: 700, marginBottom: 8 },
+  topRow: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 },
+  h2: { fontSize: 22, fontWeight: 800, letterSpacing: -0.3 },
+  subtitle: { fontSize: 14, opacity: 0.85, display: "grid", gap: 4 },
   statusPill: {
-    fontSize: 12,
-    padding: "7px 10px",
+    padding: "6px 10px",
     borderRadius: 999,
-    background: "rgba(0, 255, 180, 0.10)",
-    border: "1px solid rgba(0, 255, 180, 0.25)",
-    color: "rgba(190, 255, 235, 1)",
-    whiteSpace: "nowrap"
+    border: "1px solid rgba(255,255,255,0.16)",
+    background: "rgba(255,255,255,0.05)",
+    fontSize: 12,
+    fontWeight: 700,
   },
-  grid2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 },
-  kv: { padding: 12, borderRadius: 14, border: "1px solid rgba(255,255,255,0.10)", background: "rgba(0,0,0,0.20)" },
-  k: { fontSize: 12, opacity: 0.75 },
-  v: { marginTop: 6, fontWeight: 750 },
-  step: {
-    display: "grid",
-    gridTemplateColumns: "36px 1fr",
-    gap: 12,
-    padding: 12,
+  notice: {
+    marginTop: 8,
     borderRadius: 14,
-    border: "1px solid rgba(255,255,255,0.10)",
-    background: "rgba(0,0,0,0.18)"
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(0,0,0,0.18)",
+    padding: 14,
+    fontSize: 14,
   },
-  stepIndex: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
+  grid2: {
     display: "grid",
-    placeItems: "center",
-    fontWeight: 900,
-    background: "rgba(255,255,255,0.08)",
-    border: "1px solid rgba(255,255,255,0.12)"
+    gridTemplateColumns: "1fr 1fr",
+    gap: 12,
+    marginTop: 10,
   },
-  stepTitle: { fontWeight: 850 },
-  stepDesc: { opacity: 0.82, marginTop: 4, lineHeight: 1.35 },
-  footer: { marginTop: 16, opacity: 0.7, fontSize: 12 },
-  footerText: { padding: "0 4px" }
+  kv: {
+    borderRadius: 14,
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(0,0,0,0.14)",
+    padding: 12,
+  },
+  k: { fontSize: 12, opacity: 0.75, marginBottom: 6 },
+  v: { fontSize: 14, fontWeight: 700 },
+  sectionTitle: { fontSize: 16, fontWeight: 800, marginTop: 12, marginBottom: 10 },
+  steps: { display: "grid", gap: 10 },
+  stepCard: {
+    borderRadius: 14,
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(0,0,0,0.14)",
+    padding: 12,
+  },
+  stepTop: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" },
+  stepTitle: { fontSize: 14, fontWeight: 800 },
+  stepDesc: { fontSize: 13, opacity: 0.85, marginTop: 6, lineHeight: 1.35 },
+  btn: {
+    border: "1px solid rgba(255,255,255,0.18)",
+    background: "rgba(255,255,255,0.06)",
+    color: "rgba(255,255,255,0.92)",
+    padding: "7px 10px",
+    borderRadius: 12,
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  muted: { opacity: 0.75, fontSize: 13, marginTop: 4 },
+  footer: { width: "100%", maxWidth: 860, marginTop: 14, paddingBottom: 16 },
 };
