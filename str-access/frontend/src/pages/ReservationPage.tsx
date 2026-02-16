@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useLocation, useParams } from "react-router-dom";
 import { Countdown } from "../components/Countdown";
 import { StatusPill } from "../components/StatusPill";
 import { StepCard } from "../components/StepCard";
@@ -56,43 +56,44 @@ function formatDate(d: Date) {
   }
 }
 
-function getCodeFromQuery(): string {
-  const url = new URL(window.location.href);
-  return url.searchParams.get("code") || url.searchParams.get("c") || "";
-}
+// IMPORTANT:
+// - En Vercel, tus functions viven en /api/*
+// - En local con `vercel dev`, también es /api/*
+const API_BASE = (import.meta as any).env?.VITE_API_BASE ?? "/api";
 
-/**
- * API base:
- * - Default: "/api" (Vercel Functions)
- * - Override with VITE_API_BASE if needed (e.g., "https://your-backend.com/api")
- */
-const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "/api";
-
-async function fetchJsonOrThrow(res: Response) {
-  // If an HTML page comes back, this avoids "Unexpected token <" and shows a useful error
+async function readJsonSafely(res: Response): Promise<any> {
   const contentType = res.headers.get("content-type") || "";
-  if (!contentType.includes("application/json")) {
-    const text = await res.text().catch(() => "");
-    const snippet = text?.slice(0, 140)?.replace(/\s+/g, " ") || "";
+  const text = await res.text();
+
+  // Si nos llega HTML (por ejemplo un index.html por rewrites), aquí lo detectamos
+  if (
+    contentType.includes("text/html") ||
+    text.trim().startsWith("<!doctype") ||
+    text.trim().startsWith("<html")
+  ) {
     throw new Error(
-      `API returned non-JSON (${res.status}). Check your Vercel function routes/rewrites. ${snippet ? `Response: ${snippet}` : ""}`.trim()
+      "API is returning HTML instead of JSON. This usually means you're hitting the Vite server (5173) instead of `vercel dev` (3000), or your rewrites are catching /api."
     );
   }
-  return res.json();
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`Invalid JSON from API. First chars: ${text.slice(0, 80)}`);
+  }
 }
 
 async function fetchReservationByCode(code: string): Promise<Reservation> {
-  // IMPORTANT: do NOT add an extra "/api" here; API_BASE already includes it by default
-  const res = await fetch(`${API_BASE}/reservations/by-code/${encodeURIComponent(code)}`, {
-    method: "GET",
-    headers: { Accept: "application/json" },
-  });
+  const res = await fetch(
+    `${API_BASE}/reservations/by-code/${encodeURIComponent(code)}`,
+    { headers: { Accept: "application/json" } }
+  );
 
-  const json = await fetchJsonOrThrow(res);
+  const json = await readJsonSafely(res);
 
+  // backend returns: { ok, reservation }
   if (!res.ok || !json?.ok) throw new Error(json?.error || "Reservation not found");
 
-  // backend returns: { ok, code, id, updatedAt, reservation }
   return json.reservation as Reservation;
 }
 
@@ -225,7 +226,9 @@ function WifiBlock({ wifi }: { wifi?: WifiInfo | null }) {
             {wifi.notes ? (
               <div className="muted small">{wifi.notes}</div>
             ) : (
-              <div className="muted small">Tip: if you have issues, stand closer to the router for first connection.</div>
+              <div className="muted small">
+                Tip: if you have issues, stand closer to the router for first connection.
+              </div>
             )}
           </div>
         )}
@@ -234,13 +237,27 @@ function WifiBlock({ wifi }: { wifi?: WifiInfo | null }) {
   );
 }
 
+/**
+ * ✅ FIX CLAVE:
+ * - code ya NO se guarda “para siempre” en useState inicial
+ * - se recalcula con params + query cada vez que cambie la URL
+ */
+function useAccessCode(): string {
+  const params = useParams();
+  const location = useLocation();
+
+  return useMemo(() => {
+    const routeCode = typeof (params as any).code === "string" ? String((params as any).code) : "";
+    const sp = new URLSearchParams(location.search);
+    const queryCode = sp.get("code") || sp.get("c") || "";
+
+    return routeCode || queryCode || "";
+  }, [params, location.search]);
+}
+
 export function ReservationPage() {
   const [now, setNow] = useState<Date>(() => new Date());
-
-  // code from /r/:code (preferred), fallback to ?code=
-  const params = useParams();
-  const routeCode = typeof (params as any).code === "string" ? ((params as any).code as string) : "";
-  const [code] = useState<string>(() => routeCode || getCodeFromQuery());
+  const code = useAccessCode();
 
   // API state
   const [loading, setLoading] = useState<boolean>(false);
@@ -333,24 +350,22 @@ export function ReservationPage() {
     setResultByStep((prev) => ({ ...prev, [stepId]: "idle" }));
 
     try {
-      // IMPORTANT: do NOT add an extra "/api" here; API_BASE already includes it by default
       const res = await fetch(`${API_BASE}/unlock`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ code, stepId, action: stepId }),
       });
 
-      const json = await fetchJsonOrThrow(res);
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "Unlock failed");
+      const json = await readJsonSafely(res);
 
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Unlock failed");
       setResultByStep((prev) => ({ ...prev, [stepId]: "success" }));
     } catch (e) {
       setResultByStep((prev) => ({ ...prev, [stepId]: "error" }));
-      // keep console warning but avoid crashing UI
       console.warn(e);
     } finally {
       setLoadingByStep((prev) => ({ ...prev, [stepId]: false }));
-      window.setTimeout(() => setResultByStep((prev) => ({ ...prev, [stepId]: "idle" })), 3500);
+      setTimeout(() => setResultByStep((prev) => ({ ...prev, [stepId]: "idle" })), 3500);
     }
   }
 

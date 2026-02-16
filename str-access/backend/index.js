@@ -278,10 +278,15 @@ let lastWebhook = null;
 let lastUnlock = null;
 
 // ============================================================
-// Health
+// Health (Opción A: todo bajo /api/*)
 // ============================================================
-app.get("/health", (_req, res) => {
+app.get("/api/health", (_req, res) => {
   res.json({ ok: true, status: "running" });
+});
+
+// (Opcional recomendado) compatibilidad temporal para no romper llamadas viejas
+app.get("/health", (_req, res) => {
+  res.redirect(308, "/api/health");
 });
 
 // ============================================================
