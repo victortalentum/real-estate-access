@@ -1,7 +1,6 @@
 {
-  "routes": [
-    { "handle": "filesystem" },
-    { "src": "/api/(.*)", "dest": "/api/$1" },
-    { "src": "/(.*)", "dest": "/index.html" }
+  "rewrites": [
+    { "source": "/api/reservations/by-code/:code", "destination": "/api/reservations?code=:code" },
+    { "source": "/api/reservations/by-id/:id", "destination": "/api/reservations?id=:id" }
   ]
 }
