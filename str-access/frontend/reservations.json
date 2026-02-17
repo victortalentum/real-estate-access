@@ -1,9 +1,1 @@
-[
-  {
-    "reservationId": "ABC123",
-    "address": "123 Main St, NYC",
-    "checkInISO": "2026-01-20T15:00:00.000Z",
-    "checkOutISO": "2026-01-25T11:00:00.000Z",
-    "steps": []
-  }
-]
+[]
