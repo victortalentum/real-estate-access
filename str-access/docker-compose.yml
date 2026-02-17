@@ -12,15 +12,14 @@ services:
       # - ./backend/credentials.json:/app/credentials.json
     restart: unless-stopped
 
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: cloudflared
-    depends_on:
-      - app
-    env_file:
-      - ./.env
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
-    restart: unless-stopped
+cloudflared:
+  image: cloudflare/cloudflared:latest
+  container_name: cloudflared
+  env_file:
+    - ./backend/.env
+  command: tunnel run
+  restart: unless-stopped
+
 
 
   

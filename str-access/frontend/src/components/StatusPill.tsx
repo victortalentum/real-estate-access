@@ -1,4 +1,4 @@
-import { type AccessPhase } from "../mock/reservation";
+import type { AccessPhase } from "../mock/reservation";
 
 export function StatusPill({ phase }: { phase: AccessPhase }) {
   const label =

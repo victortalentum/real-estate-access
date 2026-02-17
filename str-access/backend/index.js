@@ -278,15 +278,15 @@ let lastWebhook = null;
 let lastUnlock = null;
 
 // ============================================================
-// Health (Opción A: todo bajo /api/*)
+// Health
 // ============================================================
-app.get("/api/health", (_req, res) => {
+app.get("/health", (_req, res) => {
   res.json({ ok: true, status: "running" });
 });
 
-// (Opcional recomendado) compatibilidad temporal para no romper llamadas viejas
-app.get("/health", (_req, res) => {
-  res.redirect(308, "/api/health");
+// ✅ Opción A: alias para que Vite pueda llamar /api/health sin rewrite
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true, status: "running" });
 });
 
 // ============================================================

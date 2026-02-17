@@ -1,13 +1,24 @@
-import React from "react";
-import ReactDOM from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
-import App from "./App";
-import "./index.css";
+const id = window.location.pathname.replace("/", "").trim();
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
-  </React.StrictMode>
-);
+const root = document.getElementById("app")!;
+root.innerHTML = `<div>Loading…</div>`;
+
+if (!id) {
+  root.innerHTML = `<div>Missing reservation id</div>`;
+} else {
+  fetch(`/api/reservations/by-id/${encodeURIComponent(id)}`)
+    .then(r => r.json())
+    .then(data => {
+      if (!data.ok) {
+        root.innerHTML = `<div>Not found</div>`;
+        return;
+      }
+      root.innerHTML = `
+        <h1>Reservation ${data.reservation.reservationId}</h1>
+        <p>${data.reservation.address}</p>
+      `;
+    })
+    .catch(() => {
+      root.innerHTML = `<div>Error loading reservation</div>`;
+    });
+}

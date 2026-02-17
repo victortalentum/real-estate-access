@@ -1,34 +1,41 @@
 // frontend/api/_lib/reservationsStore.ts
-import { promises as fs } from "node:fs";
 
 export type Reservation = {
   id: string;
   code: string;
-  [key: string]: any;
+  propertyId?: string;
+  guestName?: string;
+  checkIn?: string;
+  checkOut?: string;
 };
 
-function reservationsFileUrl() {
-  // Este archivo está en: api/_lib/reservationsStore.ts
-  // El JSON está en: api/data/reservations.json
-  return new URL("../data/reservations.json", import.meta.url);
+const reservations: Reservation[] = [
+  {
+    id: "1",
+    code: "RES-123",
+    propertyId: "APT-01",
+    guestName: "Victor",
+    checkIn: "2026-02-15",
+    checkOut: "2026-02-20"
+  }
+];
+
+export function readReservations(): Reservation[] {
+  return reservations;
 }
 
-export async function readReservations(): Promise<Reservation[]> {
-  const fileUrl = reservationsFileUrl();
-  const raw = await fs.readFile(fileUrl, "utf-8");
-  const data = JSON.parse(raw);
-
-  // Acepta que sea array directamente o que venga envuelto
-  if (Array.isArray(data)) return data;
-  if (Array.isArray(data?.reservations)) return data.reservations;
-
-  return [];
+export function findByCode(code: string): Reservation | null {
+  return (
+    reservations.find(
+      r => r.code.toUpperCase() === code.toUpperCase()
+    ) || null
+  );
 }
 
-export function findByCode(list: Reservation[], code: string) {
-  return list.find((r) => String(r.code).toUpperCase() === String(code).toUpperCase());
-}
-
-export function findById(list: Reservation[], id: string) {
-  return list.find((r) => String(r.id) === String(id));
+export function findById(id: string): Reservation | null {
+  return (
+    reservations.find(
+      r => r.id === id
+    ) || null
+  );
 }
