@@ -1,15 +1,17 @@
-import { findByCode } from "../../_lib/reservationsStore.js";
+// frontend/api/reservations/by-code/[code].js
+import { getReservationByCode } from "../../_lib/reservationsStore.js";
 
-export default function handler(req, res) {
+export default async function handler(req, res) {
   try {
-    const code = String(req.query?.code || "").trim();
-    if (!code) return res.status(400).json({ error: "BAD_REQUEST", message: "Missing code param" });
+    const code = String(req.query?.code ?? "").trim();
+    if (!code) return res.status(400).json({ ok: false, error: "MISSING_CODE" });
 
-    const reservation = findByCode(code);
-    if (!reservation) return res.status(404).json({ error: "NOT_FOUND", message: `No reservation for code ${code}` });
+    const reservation = await getReservationByCode(code);
+    if (!reservation) return res.status(404).json({ ok: false, error: "NOT_FOUND" });
 
-    return res.status(200).json(reservation);
+    return res.status(200).json({ ok: true, reservation });
   } catch (e) {
-    return res.status(500).json({ error: "INTERNAL", message: e?.message || String(e) });
+    console.error("reservations/by-code error:", e);
+    res.status(500).json({ ok: false, error: "INTERNAL", message: e?.message || String(e) });
   }
 }

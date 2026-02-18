@@ -1,3 +1,4 @@
+// frontend/api/health.js
 export default function handler(req, res) {
-  return res.status(200).json({ ok: true });
+  res.status(200).json({ ok: true });
 }

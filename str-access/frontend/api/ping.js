@@ -1,3 +1,4 @@
+// frontend/api/ping.js
 export default function handler(req, res) {
-  return res.status(200).json({ pong: true, ts: Date.now() });
+  res.status(200).json({ ok: true, ts: Date.now() });
 }

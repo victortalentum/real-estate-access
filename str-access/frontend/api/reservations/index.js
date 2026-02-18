@@ -1,24 +1,24 @@
-import { readReservations, findByCode } from "../_lib/reservationsStore.js";
+// frontend/api/reservations/index.js
+import { getReservationByCode } from "../_lib/reservationsStore.js";
 
-export default function handler(req, res) {
+export default async function handler(req, res) {
   try {
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    const code = String(req.query?.code ?? "").trim();
 
-    if (req.method === "OPTIONS") return res.status(200).end();
-    if (req.method !== "GET") return res.status(405).json({ error: "METHOD_NOT_ALLOWED" });
-
-    const code = req.query?.code ? String(req.query.code) : "";
-
+    // Si viene ?code=RES-123 -> devuelve esa reserva
     if (code) {
-      const found = findByCode(code);
-      if (!found) return res.status(404).json({ error: "NOT_FOUND", code });
-      return res.status(200).json(found);
+      const reservation = await getReservationByCode(code);
+      if (!reservation) return res.status(404).json({ ok: false, error: "NOT_FOUND" });
+      return res.status(200).json({ ok: true, reservation });
     }
 
-    return res.status(200).json(readReservations());
+    // Si no hay code, devolvemos ayuda (por ahora)
+    return res.status(200).json({
+      ok: true,
+      hint: "Use ?code=RES-123 or /api/reservations/by-id/:id",
+    });
   } catch (e) {
-    return res.status(500).json({ error: "INTERNAL", message: e?.message || String(e) });
+    console.error("reservations/index error:", e);
+    res.status(500).json({ ok: false, error: "INTERNAL", message: e?.message || String(e) });
   }
 }
