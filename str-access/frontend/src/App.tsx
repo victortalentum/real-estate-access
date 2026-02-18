@@ -3,12 +3,13 @@ import { useEffect, useMemo, useState } from "react";
 type Step = { id: string; title: string; description?: string; actionLabel?: string };
 
 type Reservation = {
-  reservationId: string;
-  name?: string;
+  id: string;
+  code: string;
+  guestName?: string;
   property?: string;
   address?: string;
-  checkInISO?: string;
-  checkOutISO?: string;
+  checkIn?: string;   // viene como "2026-02-20"
+  checkOut?: string;  // viene como "2026-02-22"
   steps?: Step[];
 };
 
@@ -16,14 +17,20 @@ function formatDate(iso?: string) {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 async function safeJson(res: Response) {
   const ct = res.headers.get("content-type") || "";
   const text = await res.text();
 
-  // Si no es JSON, te enseñamos un snippet para debug
+  // Si no es JSON, enseñamos un snippet para debug
   if (!ct.includes("application/json")) {
     const snippet = text.slice(0, 220).replace(/\s+/g, " ").trim();
     throw new Error(`API returned non-JSON (HTTP ${res.status}). ${snippet}`);
@@ -38,7 +45,7 @@ async function safeJson(res: Response) {
 }
 
 export default function App() {
-  const reservationId = useMemo(() => {
+  const reservationCode = useMemo(() => {
     const p = window.location.pathname.replace(/^\/+/, "").trim(); // "RES-123"
     if (!p) return null;
 
@@ -48,19 +55,22 @@ export default function App() {
     return p;
   }, []);
 
-  const [loading, setLoading] = useState<boolean>(!!reservationId);
+  const [loading, setLoading] = useState<boolean>(!!reservationCode);
   const [error, setError] = useState<string | null>(null);
   const [reservation, setReservation] = useState<Reservation | null>(null);
 
   useEffect(() => {
-    if (!reservationId) return;
+    if (!reservationCode) return;
 
     (async () => {
       setLoading(true);
       setError(null);
+      setReservation(null);
 
       try {
-        const url = `${window.location.origin}/api/reservations/by-id/${encodeURIComponent(reservationId)}`;
+        // TU API FUNCIONA ASÍ:
+        // /api/reservations?code=RES-123
+        const url = `/api/reservations?code=${encodeURIComponent(reservationCode)}`;
 
         const res = await fetch(url, {
           headers: { Accept: "application/json" },
@@ -69,19 +79,22 @@ export default function App() {
 
         const data = await safeJson(res);
 
-        if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+        if (!res.ok) {
+          throw new Error(data?.error || `HTTP ${res.status}`);
+        }
 
-        setReservation(data.reservation);
+        // data ya es la reserva
+        setReservation(data as Reservation);
       } catch (e: any) {
         setError(e?.message || String(e));
       } finally {
         setLoading(false);
       }
     })();
-  }, [reservationId]);
+  }, [reservationCode]);
 
   // Pantalla “home” si abren apartments-nyc.com sin /RES-xxx
-  if (!reservationId) {
+  if (!reservationCode) {
     return (
       <div style={styles.shell}>
         <div style={styles.header}>
@@ -89,7 +102,7 @@ export default function App() {
         </div>
 
         <div style={styles.card}>
-          <div style={styles.cardTitle}>Open the link you received (it ends with your reservation id).</div>
+          <div style={styles.cardTitle}>Open the link you received (it ends with your reservation code).</div>
           <div style={styles.muted}>Example: apartments-nyc.com/RES-123</div>
         </div>
       </div>
@@ -108,8 +121,8 @@ export default function App() {
           <div>
             <div style={{ ...styles.h2, marginBottom: 6 }}>{reservation?.property || "Your stay"}</div>
             <div style={styles.subtitle}>
-              <div>Reservation {reservationId}</div>
-              {reservation?.name ? <div>Guest: {reservation.name}</div> : null}
+              <div>Reservation {reservationCode}</div>
+              {reservation?.guestName ? <div>Guest: {reservation.guestName}</div> : null}
               {reservation?.address ? <div>{reservation.address}</div> : null}
             </div>
           </div>
@@ -123,7 +136,7 @@ export default function App() {
             <div style={{ fontWeight: 700, marginBottom: 6 }}>Error</div>
             <div style={{ whiteSpace: "pre-wrap" }}>{error}</div>
             <div style={{ marginTop: 10, opacity: 0.8, fontSize: 13 }}>
-              Tip: prueba también abrir <b>/api/health</b> y <b>/api/reservations/by-id/{reservationId}</b> para ver si responde JSON.
+              Tip: prueba también abrir <b>/api/health</b> y <b>/api/reservations?code={reservationCode}</b> para ver si responde JSON.
             </div>
           </div>
         ) : !reservation ? (
@@ -133,11 +146,11 @@ export default function App() {
             <div style={styles.grid2}>
               <div style={styles.kv}>
                 <div style={styles.k}>Check-in</div>
-                <div style={styles.v}>{formatDate(reservation.checkInISO)}</div>
+                <div style={styles.v}>{formatDate(reservation.checkIn)}</div>
               </div>
               <div style={styles.kv}>
                 <div style={styles.k}>Check-out</div>
-                <div style={styles.v}>{formatDate(reservation.checkOutISO)}</div>
+                <div style={styles.v}>{formatDate(reservation.checkOut)}</div>
               </div>
             </div>
 
@@ -161,9 +174,7 @@ export default function App() {
       </div>
 
       <div style={styles.footer}>
-        <div style={styles.muted}>
-          This page is unique per reservation. We’ll connect it to Hospitable next.
-        </div>
+        <div style={styles.muted}>This page is unique per reservation. We’ll connect it to Hospitable next.</div>
       </div>
     </div>
   );
@@ -182,7 +193,8 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
-    background: "radial-gradient(1200px 800px at 20% 10%, rgba(255,255,255,0.08), transparent 60%), radial-gradient(900px 700px at 80% 0%, rgba(255,255,255,0.06), transparent 60%), #0b0c10",
+    background:
+      "radial-gradient(1200px 800px at 20% 10%, rgba(255,255,255,0.08), transparent 60%), radial-gradient(900px 700px at 80% 0%, rgba(255,255,255,0.06), transparent 60%), #0b0c10",
     color: "rgba(255,255,255,0.92)",
   },
   header: {
