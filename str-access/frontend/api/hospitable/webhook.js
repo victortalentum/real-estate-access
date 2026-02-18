@@ -1,66 +1,112 @@
-// frontend/api/hospitable/webhook.js
+import { setJson } from "../_lib/store.js";
 
-import { setReservationCached } from "../_lib/store.js";
+function pickReservation(payload) {
+  // Hospitable puede enviar el objeto con distintas formas.
+  // Intentamos cubrir las más típicas:
+  const r =
+    payload?.reservation ||
+    payload?.data?.reservation ||
+    payload?.data ||
+    payload;
 
-function json(res, status, body) {
-  res.statusCode = status;
-  res.setHeader("Content-Type", "application/json");
-  res.end(JSON.stringify(body));
-}
+  if (!r) return null;
 
-// mismo mapper que arriba (duplicado por simplicidad)
-function mapToFrontendReservation(h) {
-  const id = String(h?.id ?? h?.reservation_id ?? h?.reservationId ?? "");
+  // ID de Hospitable (el que tú quieres en la URL)
+  const reservationId =
+    String(
+      r.id ??
+        r.reservation_id ??
+        r.reservationId ??
+        r.external_id ??
+        r.confirmation_code ??
+        ""
+    ).trim();
+
+  if (!reservationId) return null;
+
+  const propertyId = String(
+    r.property_id ?? r.propertyId ?? r.listing_id ?? r.listingId ?? ""
+  ).trim();
+
   const guestName =
-    h?.guest?.name || h?.guest_name || h?.guestName || h?.primary_guest_name;
+    r.guest?.name ||
+    r.guest_name ||
+    r.guestName ||
+    [r.guest?.first_name, r.guest?.last_name].filter(Boolean).join(" ") ||
+    "";
 
-  const checkIn =
-    h?.check_in || h?.checkIn || h?.arrival_date || h?.start_date;
-  const checkOut =
-    h?.check_out || h?.checkOut || h?.departure_date || h?.end_date;
+  const checkInISO =
+    r.check_in ||
+    r.checkIn ||
+    r.start_date ||
+    r.checkin ||
+    r.arrival_date ||
+    null;
+
+  const checkOutISO =
+    r.check_out ||
+    r.checkOut ||
+    r.end_date ||
+    r.checkout ||
+    r.departure_date ||
+    null;
+
+  const address =
+    r.property?.address ||
+    r.address ||
+    r.listing?.address ||
+    r.property_address ||
+    "";
 
   const propertyName =
-    h?.property?.name || h?.listing?.name || h?.property_name;
-  const address =
-    h?.property?.address ||
-    h?.listing?.address ||
-    h?.address ||
-    h?.property_address;
+    r.property?.name || r.listing?.name || r.property_name || r.title || "";
 
   return {
-    reservationId: id,
-    name: guestName,
-    property: propertyName,
-    address: address,
-    checkInISO: checkIn,
-    checkOutISO: checkOut,
-    steps: [],
+    reservationId,           // <- clave
+    propertyId,
+    guestName,
+    propertyName,
+    address,
+    checkInISO,
+    checkOutISO,
+    raw: r,                  // guardo también raw por si luego necesitas algo
+    updatedAt: new Date().toISOString(),
   };
 }
 
-export const config = {
-  api: { bodyParser: true },
-};
-
 export default async function handler(req, res) {
   try {
-    const expected = process.env.HOSPITABLE_WEBHOOK_SECRET;
-    const got = req.query.secret;
+    if (req.method !== "POST") {
+      return res.status(405).json({ ok: false, error: "Method not allowed" });
+    }
 
-    if (!expected) return json(res, 500, { ok: false, error: "Missing HOSPITABLE_WEBHOOK_SECRET" });
-    if (got !== expected) return json(res, 401, { ok: false, error: "Invalid secret" });
+    const expected = process.env.HOSPITABLE_WEBHOOK_SECRET || "";
+    const provided = String(req.query?.secret || "");
 
-    // Hospitable enviará un payload (normalmente con event + data/reservation)
+    if (!expected) {
+      return res.status(500).json({ ok: false, error: "Missing HOSPITABLE_WEBHOOK_SECRET" });
+    }
+    if (provided !== expected) {
+      return res.status(401).json({ ok: false, error: "Invalid webhook secret" });
+    }
+
     const payload = req.body || {};
-    const reservation = payload.reservation || payload.data || payload;
+    const normalized = pickReservation(payload);
 
-    const mapped = mapToFrontendReservation(reservation);
-    if (!mapped.reservationId) return json(res, 400, { ok: false, error: "Missing reservation id in payload" });
+    if (!normalized) {
+      return res.status(400).json({ ok: false, error: "Could not parse reservation from webhook payload" });
+    }
 
-    await setReservationCached(mapped.reservationId, mapped);
+    // Guardamos por ID de Hospitable
+    await setJson(`reservation:${normalized.reservationId}`, normalized);
 
-    return json(res, 200, { ok: true });
+    // también guardamos índice por property si luego quieres “últimas reservas”
+    if (normalized.propertyId) {
+      await setJson(`reservation_property:${normalized.propertyId}:${normalized.reservationId}`, normalized);
+    }
+
+    return res.status(200).json({ ok: true, reservationId: normalized.reservationId });
   } catch (e) {
-    return json(res, 500, { ok: false, error: e?.message || String(e) });
+    return res.status(500).json({ ok: false, error: e?.message || String(e) });
   }
 }
