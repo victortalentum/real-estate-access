@@ -1,76 +1,66 @@
 // frontend/api/hospitable/webhook.js
-import { extractReservationFromPayload, upsertReservation } from "../_lib/reservationsStore.js";
+
+import { setReservationCached } from "../_lib/store.js";
+
+function json(res, status, body) {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify(body));
+}
+
+// mismo mapper que arriba (duplicado por simplicidad)
+function mapToFrontendReservation(h) {
+  const id = String(h?.id ?? h?.reservation_id ?? h?.reservationId ?? "");
+  const guestName =
+    h?.guest?.name || h?.guest_name || h?.guestName || h?.primary_guest_name;
+
+  const checkIn =
+    h?.check_in || h?.checkIn || h?.arrival_date || h?.start_date;
+  const checkOut =
+    h?.check_out || h?.checkOut || h?.departure_date || h?.end_date;
+
+  const propertyName =
+    h?.property?.name || h?.listing?.name || h?.property_name;
+  const address =
+    h?.property?.address ||
+    h?.listing?.address ||
+    h?.address ||
+    h?.property_address;
+
+  return {
+    reservationId: id,
+    name: guestName,
+    property: propertyName,
+    address: address,
+    checkInISO: checkIn,
+    checkOutISO: checkOut,
+    steps: [],
+  };
+}
 
 export const config = {
-  api: {
-    bodyParser: true, // Hospitable manda JSON, esto está bien
-  },
+  api: { bodyParser: true },
 };
 
 export default async function handler(req, res) {
   try {
-    // 1) Validación del secret por querystring
-    const provided = String(req.query?.secret ?? "");
-    const expected = String(process.env.HOSPITABLE_WEBHOOK_SECRET ?? "");
+    const expected = process.env.HOSPITABLE_WEBHOOK_SECRET;
+    const got = req.query.secret;
 
-    if (!expected) {
-      return res.status(500).json({ ok: false, error: "MISSING_ENV", message: "HOSPITABLE_WEBHOOK_SECRET not set" });
-    }
-    if (!provided || provided !== expected) {
-      return res.status(401).json({ ok: false, error: "UNAUTHORISED" });
-    }
+    if (!expected) return json(res, 500, { ok: false, error: "Missing HOSPITABLE_WEBHOOK_SECRET" });
+    if (got !== expected) return json(res, 401, { ok: false, error: "Invalid secret" });
 
-    // 2) Solo aceptamos POST (Hospitable)
-    if (req.method !== "POST") {
-      return res.status(200).json({ ok: true, hint: "POST expected" });
-    }
+    // Hospitable enviará un payload (normalmente con event + data/reservation)
+    const payload = req.body || {};
+    const reservation = payload.reservation || payload.data || payload;
 
-    const payload = req.body ?? {};
-    const reservation = extractReservationFromPayload(payload);
+    const mapped = mapToFrontendReservation(reservation);
+    if (!mapped.reservationId) return json(res, 400, { ok: false, error: "Missing reservation id in payload" });
 
-    if (!reservation?.reservationId) {
-      // Te devolvemos payload recortado para debug
-      return res.status(400).json({
-        ok: false,
-        error: "CANNOT_EXTRACT_RESERVATION_ID",
-        message: "No reservationId found in webhook payload",
-      });
-    }
+    await setReservationCached(mapped.reservationId, mapped);
 
-    // 3) Aquí añadimos “steps” por propiedad (de momento básico).
-    //    Luego lo refinamos por propertyId (tú tienes varias propiedades)
-    reservation.steps = buildStepsForProperty(reservation.propertyId, reservation.property);
-
-    await upsertReservation(reservation);
-
-    return res.status(200).json({ ok: true, stored: { reservationId: reservation.reservationId, code: reservation.code } });
+    return json(res, 200, { ok: true });
   } catch (e) {
-    console.error("hospitable/webhook error:", e);
-    return res.status(500).json({ ok: false, error: "INTERNAL", message: e?.message || String(e) });
+    return json(res, 500, { ok: false, error: e?.message || String(e) });
   }
-}
-
-function buildStepsForProperty(propertyId, propertyName) {
-  // TODO: aquí meteremos lógica real por propertyId.
-  // Por ahora devolvemos un set genérico y luego lo ajustas por propiedad.
-  return [
-    {
-      id: "building",
-      title: "Building entry",
-      description: "Use the building access button (Butterfly/DoorBird).",
-      actionLabel: "Open main door",
-    },
-    {
-      id: "apartment",
-      title: "Apartment entry",
-      description: "Use your smart lock / keypad code.",
-      actionLabel: "Get code",
-    },
-    {
-      id: "wifi",
-      title: "Wi-Fi",
-      description: "Wi-Fi details will appear here.",
-      actionLabel: "Copy",
-    },
-  ];
 }
