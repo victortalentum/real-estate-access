@@ -1,24 +1,12 @@
-const id = window.location.pathname.replace("/", "").trim();
+import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "./App";
 
-const root = document.getElementById("app")!;
-root.innerHTML = `<div>Loading…</div>`;
+const el = document.getElementById("root");
+if (!el) throw new Error('Missing <div id="root"></div> in index.html');
 
-if (!id) {
-  root.innerHTML = `<div>Missing reservation id</div>`;
-} else {
-  fetch(`/api/reservations/by-id/${encodeURIComponent(id)}`)
-    .then(r => r.json())
-    .then(data => {
-      if (!data.ok) {
-        root.innerHTML = `<div>Not found</div>`;
-        return;
-      }
-      root.innerHTML = `
-        <h1>Reservation ${data.reservation.reservationId}</h1>
-        <p>${data.reservation.address}</p>
-      `;
-    })
-    .catch(() => {
-      root.innerHTML = `<div>Error loading reservation</div>`;
-    });
-}
+ReactDOM.createRoot(el).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
