@@ -1,27 +1,34 @@
-import { getJson } from "../../../_lib/store.js";
+import { cacheGet, cacheSet } from "../../_lib/store.js";
+import { hospitableFetch, normalizeReservation } from "../../_lib/hospitable.js";
 
 export default async function handler(req, res) {
   try {
-    const id = String(req.query?.id || "").trim();
+    const id = req.query?.id ? String(req.query.id) : "";
     if (!id) return res.status(400).json({ ok: false, error: "Missing id" });
 
-    const data = await getJson(`reservation:${id}`);
-    if (!data) return res.status(404).json({ ok: false, error: "Not found" });
+    // 1) Redis primero
+    const cached = await cacheGet(`res:${id}`);
+    if (cached?.normalized) {
+      return res.status(200).json({ ok: true, source: "cache", reservation: cached.normalized });
+    }
 
-    // Formato que tu App espera (ajústalo si quieres)
-    const reservation = {
-      reservationId: data.reservationId,
-      name: data.guestName,
-      property: data.propertyName,
-      address: data.address,
-      checkInISO: data.checkInISO,
-      checkOutISO: data.checkOutISO,
-      // steps vendrán luego por property (te lo dejo montado más abajo si quieres)
-      steps: [],
-    };
+    // 2) Si no hay cache, pide a Hospitable
+    // Endpoint exacto puede variar; este es el patrón típico:
+    const raw = await hospitableFetch(`/reservations/${encodeURIComponent(id)}`);
 
-    return res.status(200).json({ ok: true, reservation });
+    // A veces viene { data: {...} }
+    const obj = raw?.data ?? raw;
+    const normalized = normalizeReservation(obj);
+
+    if (!normalized.reservationId) {
+      return res.status(404).json({ ok: false, error: "Reservation not found (no id returned)" });
+    }
+
+    // 3) Cachea
+    await cacheSet(`res:${id}`, { normalized, raw: obj });
+
+    res.status(200).json({ ok: true, source: "hospitable", reservation: normalized });
   } catch (e) {
-    return res.status(500).json({ ok: false, error: e?.message || String(e) });
+    res.status(500).json({ ok: false, error: e?.message || String(e) });
   }
 }
